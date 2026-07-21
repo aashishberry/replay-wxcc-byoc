@@ -1,0 +1,23 @@
+services:
+  - type: web
+    name: relay-webex-messaging
+    runtime: node
+    plan: free
+    region: singapore
+    buildCommand: npm ci && npm run build
+    startCommand: npm start
+    healthCheckPath: /api/health
+    envVars:
+      - key: NODE_VERSION
+        value: 22.22.0
+      - key: DATABASE_URL
+        fromDatabase:
+          name: relay-webex-messaging-db
+          property: connectionString
+
+databases:
+  - name: relay-webex-messaging-db
+    plan: free
+    region: singapore
+    databaseName: relay_webex
+    user: relay_webex
