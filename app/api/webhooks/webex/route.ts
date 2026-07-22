@@ -1,5 +1,6 @@
 import { ensureSchema, getDb } from "../../../../db";
 import { normalizeMessageTimestamp } from "../../../../lib/messages";
+import { publishRealtime } from "../../../../lib/realtime";
 import { relayOutbound, verifyWebhook } from "../../../../lib/webex";
 
 type WebexEvent = {
@@ -38,18 +39,43 @@ export async function POST(request: Request) {
   try {
     event = JSON.parse(rawBody) as WebexEvent;
   } catch {
+    console.warn(
+      "[webex-webhook] rejected",
+      JSON.stringify({ reason: "invalid-json", receivedAt: Date.now() }),
+    );
     return Response.json({ error: "Invalid JSON" }, { status: 400 });
   }
+  const receipt = {
+    eventId: event.id ?? null,
+    type: event.type ?? null,
+    taskId: event.data?.taskId ?? null,
+    receivedAt: Date.now(),
+    webhookVersion: request.headers.get("x-webexcc-webhook-version") ?? null,
+    hasSignature: request.headers.has("x-webexcc-signature"),
+    bodyTimestamp: event.comciscotimestamp ?? null,
+  };
+  console.info("[webex-webhook] received", JSON.stringify(receipt));
   const verification = await verifyWebhook(
     rawBody,
     request,
     event.comciscotimestamp,
   );
-  if (!verification.valid)
+  if (!verification.valid) {
+    console.warn(
+      "[webex-webhook] rejected",
+      JSON.stringify({
+        ...receipt,
+        reason: "verification-failed",
+        signatureMatches: verification.signatureMatches,
+        timestampMatches: verification.timestampMatches,
+        fresh: verification.fresh,
+      }),
+    );
     return Response.json(
       { error: "Invalid webhook signature or timestamp" },
       { status: 401 },
     );
+  }
   if (!event.id || !event.type)
     return Response.json(
       { error: "Webhook id and type are required" },
@@ -57,8 +83,14 @@ export async function POST(request: Request) {
     );
   await ensureSchema();
   const db = getDb();
+  // The webhook envelope timestamp is UTC epoch milliseconds generated when
+  // Webex constructs the request. Prefer it for receipt order and display.
+  // Some outbound payloads contain a nested message timestamp whose clock or
+  // timezone does not agree with the envelope, which otherwise moves a newly
+  // received message earlier in the conversation.
   const now = normalizeMessageTimestamp(
-    event.data?.createdTime ?? event.comciscotimestamp,
+    event.comciscotimestamp,
+    normalizeMessageTimestamp(event.data?.createdTime),
   );
   const taskId =
     event.data?.taskId ??
@@ -73,8 +105,13 @@ export async function POST(request: Request) {
       .prepare("SELECT id FROM events WHERE id = ?")
       .bind(storedEventId)
       .first()
-  )
+  ) {
+    console.info(
+      "[webex-webhook] duplicate",
+      JSON.stringify({ ...receipt, taskId: taskId ?? null }),
+    );
     return Response.json({ received: true, duplicate: true });
+  }
   await db
     .prepare(
       `INSERT INTO events (id, task_id, type, direction, reason, error_message, payload_json, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
@@ -108,6 +145,13 @@ export async function POST(request: Request) {
     taskId
   ) {
     const message = event.data.channelParams?.message;
+    const messageCreatedAt = normalizeMessageTimestamp(
+      event.comciscotimestamp,
+      normalizeMessageTimestamp(
+        event.data.createdTime,
+        normalizeMessageTimestamp(message?.timestamp),
+      ),
+    );
     const deliveryStatus = await relayOutbound(event);
     await db
       .prepare(
@@ -120,9 +164,24 @@ export async function POST(request: Request) {
         message?.text ?? "",
         JSON.stringify(message?.attachments ?? []),
         deliveryStatus,
-        normalizeMessageTimestamp(message?.timestamp, now),
+        messageCreatedAt,
       )
       .run();
   }
-  return Response.json({ received: true, verified: verification.configured });
+  console.info(
+    "[webex-webhook] accepted",
+    JSON.stringify({ ...receipt, status: status ?? null }),
+  );
+  publishRealtime({
+    kind: "webhook",
+    taskId,
+    eventType: event.type,
+    at: now,
+  });
+  return Response.json({
+    received: true,
+    verified: verification.configured,
+    type: event.type,
+    taskId: taskId ?? null,
+  });
 }

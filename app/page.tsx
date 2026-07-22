@@ -366,6 +366,7 @@ export default function Home() {
   const [messages, setMessages] = useState<Message[]>([]);
   const [selectedId, setSelectedId] = useState("");
   const [mode, setMode] = useState<"sandbox" | "live">("sandbox");
+  const [streamConnected, setStreamConnected] = useState(false);
   const [search, setSearch] = useState("");
   const [composer, setComposer] = useState("");
   const [composerAttachments, setComposerAttachments] = useState<
@@ -419,10 +420,17 @@ export default function Home() {
 
   useEffect(() => {
     const initial = setTimeout(refresh, 0);
-    const timer = setInterval(refresh, 5000);
+    const source = new EventSource("/api/live");
+    const update = () => void refresh();
+    source.addEventListener("update", update);
+    source.onopen = () => setStreamConnected(true);
+    source.onerror = () => setStreamConnected(false);
+    const fallback = setInterval(refresh, 60_000);
     return () => {
       clearTimeout(initial);
-      clearInterval(timer);
+      clearInterval(fallback);
+      source.removeEventListener("update", update);
+      source.close();
     };
   }, [refresh]);
   useEffect(() => {
@@ -805,10 +813,19 @@ export default function Home() {
         <aside className="event-rail">
           <div className="section-head">
             <div>
-              <p className="eyebrow">LIVE</p>
+              <p className="eyebrow">
+                {streamConnected ? "LIVE" : "RECONNECTING"}
+              </p>
               <h2>Event stream</h2>
             </div>
-            <span className="pulse" />
+            <span
+              className={`pulse${streamConnected ? "" : " disconnected"}`}
+              title={
+                streamConnected
+                  ? "Real-time event stream connected"
+                  : "Real-time event stream reconnecting"
+              }
+            />
           </div>
           <div className="event-list">
             {events

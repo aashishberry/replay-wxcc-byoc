@@ -4,6 +4,7 @@ import {
   validateAttachments,
   webexAttachments,
 } from "../../../lib/messages";
+import { publishRealtime } from "../../../lib/realtime";
 import { integrationMode, webexRequest } from "../../../lib/webex";
 
 export async function GET() {
@@ -119,6 +120,12 @@ export async function POST(request: Request) {
         )
         .bind(crypto.randomUUID(), taskId, JSON.stringify(payload), timestamp),
     ]);
+    publishRealtime({
+      kind: "task",
+      taskId,
+      eventType: "middleware:task-submitted",
+      at: timestamp,
+    });
     return Response.json(
       { taskId, aliasId, mode: integrationMode() },
       { status: 201 },

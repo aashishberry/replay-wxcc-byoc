@@ -655,6 +655,10 @@ button:disabled {
   border-radius: 50%;
   box-shadow: 0 0 0 5px rgba(47, 155, 114, 0.12);
 }
+.pulse.disconnected {
+  background: #e6ac3f;
+  box-shadow: 0 0 0 5px rgba(230, 172, 63, 0.14);
+}
 .event-list {
   flex: 1;
   min-height: 0;
@@ -820,8 +824,17 @@ button:disabled {
   grid-template-columns: 1fr 1fr;
   gap: 14px;
 }
+.create-form .field-row > label,
 .create-form > label,
-.message-field > label,
+.message-field > label {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-bottom: 13px;
+  font: inherit;
+  text-transform: none;
+  letter-spacing: normal;
+}
 .attachment-row label {
   display: flex;
   flex-direction: column;
@@ -912,6 +925,10 @@ button:disabled {
 .attachment-editor-head > span {
   font: 500 9px var(--font-mono);
   text-transform: uppercase;
+}
+.create-form > .attachment-editor .attachment-editor-head > span {
+  font: inherit;
+  text-transform: none;
 }
 .attachment-editor-head button {
   border: 0;

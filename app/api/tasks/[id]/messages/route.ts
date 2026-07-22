@@ -3,6 +3,7 @@ import {
   validateAttachments,
   webexAttachments,
 } from "../../../../../lib/messages";
+import { publishRealtime } from "../../../../../lib/realtime";
 import { webexRequest } from "../../../../../lib/webex";
 
 export async function GET(
@@ -97,6 +98,12 @@ export async function POST(
         )
         .bind(timestamp, id),
     ]);
+    publishRealtime({
+      kind: "message",
+      taskId: id,
+      eventType: "middleware:message-submitted",
+      at: timestamp,
+    });
     return Response.json({ id: aliasId }, { status: 201 });
   } catch (error) {
     return Response.json(

@@ -94,6 +94,15 @@ Open [http://localhost:3000](http://localhost:3000). To test persistence, create
 `.env.local` from `.env.example`, set `DATABASE_URL`, and set
 `DATABASE_SSL=false` for a typical local PostgreSQL server.
 
+### Real-time UI updates
+
+The browser uses Server-Sent Events at `/api/live` for immediate task, message,
+and accepted-webhook notifications. Notifications contain only the update kind,
+task ID, event type, and timestamp. The browser retains a 60-second refresh as a
+recovery path after connection loss. The in-process broadcaster is appropriate
+for a single Render instance; horizontal scaling requires PostgreSQL
+`LISTEN/NOTIFY` or a shared pub/sub service so every instance sees each update.
+
 ## Rich messages and attachments
 
 Message text accepts Markdown and a safe subset of HTML. Scripts, event

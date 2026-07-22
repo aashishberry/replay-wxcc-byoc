@@ -106,7 +106,13 @@ export async function verifyWebhook(
 ) {
   const secret = runtimeEnv().WEBEX_WEBHOOK_SECRET;
   if (!secret)
-    return { valid: integrationMode() === "sandbox", configured: false };
+    return {
+      valid: integrationMode() === "sandbox",
+      configured: false,
+      signatureMatches: null,
+      timestampMatches: null,
+      fresh: null,
+    };
   const signature = request.headers.get("x-webexcc-signature") ?? "";
   const key = await crypto.subtle.importKey(
     "raw",
@@ -136,6 +142,9 @@ export async function verifyWebhook(
   return {
     valid: signatureMatches && timestampMatches && fresh,
     configured: true,
+    signatureMatches,
+    timestampMatches,
+    fresh,
   };
 }
 

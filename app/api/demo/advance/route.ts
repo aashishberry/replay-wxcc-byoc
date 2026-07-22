@@ -1,4 +1,5 @@
 import { ensureSchema, getDb } from "../../../../db";
+import { publishRealtime } from "../../../../lib/realtime";
 import { integrationMode } from "../../../../lib/webex";
 const nextState: Record<string, { type: string; status: string }> = {
   accepted: { type: "task:new", status: "created" },
@@ -48,5 +49,11 @@ export async function POST(request: Request) {
         now,
       ),
   ]);
+  publishRealtime({
+    kind: "task",
+    taskId,
+    eventType: next.type,
+    at: now,
+  });
   return Response.json(next);
 }
