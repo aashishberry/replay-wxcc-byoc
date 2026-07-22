@@ -78,6 +78,7 @@ const statusLabel: Record<string, string> = {
   ended: "Ended",
   failed: "Failed",
 };
+const terminalTaskStatuses = new Set(["ended", "failed"]);
 const initialForm = {
   originId: "",
   originName: "",
@@ -437,6 +438,9 @@ export default function Home() {
     return () => window.removeEventListener("keydown", close);
   }, [createOpen]);
   const selected = tasks.find((task) => task.id === selectedId);
+  const taskClosed = selected
+    ? terminalTaskStatuses.has(selected.status)
+    : false;
   const visibleTasks = useMemo(
     () =>
       tasks.filter((task) =>
@@ -457,7 +461,7 @@ export default function Home() {
   );
   const newestMessageId = orderedMessages.at(-1)?.id;
   const activeCount = tasks.filter(
-    (task) => !["ended", "failed"].includes(task.status),
+    (task) => !terminalTaskStatuses.has(task.status),
   ).length;
   const failureCount = tasks.filter((task) => task.status === "failed").length;
 
@@ -503,6 +507,10 @@ export default function Home() {
   async function appendMessage(event: FormEvent) {
     event.preventDefault();
     if (!selected || !composer.trim()) return;
+    if (taskClosed) {
+      setNotice("This conversation is closed and cannot accept messages.");
+      return;
+    }
     setBusy(true);
     setNotice("");
     const response = await fetch(
@@ -722,56 +730,69 @@ export default function Home() {
                   </article>
                 ))}
               </div>
-              <form className="composer" onSubmit={appendMessage}>
-                {showAttachments && (
-                  <AttachmentEditor
-                    value={composerAttachments}
-                    onChange={setComposerAttachments}
-                    policy={policy}
-                  />
-                )}
-                <FormattingToolbar
-                  textareaRef={composerRef}
-                  value={composer}
-                  setValue={setComposer}
-                />
-                <textarea
-                  ref={composerRef}
-                  value={composer}
-                  onChange={(event) => setComposer(event.target.value)}
-                  onKeyDown={composerKeyDown}
-                  placeholder="Append a customer message…"
-                  aria-label="Customer message"
-                />
-                <div>
-                  <span>Enter sends · Shift/Ctrl/⌘ + Enter adds a line</span>
-                  <span className="composer-actions">
-                    <button
-                      className="attach-button"
-                      type="button"
-                      onClick={() => setShowAttachments((value) => !value)}
-                      aria-pressed={showAttachments}
-                      disabled={!policy.enabled}
-                      title={
-                        policy.enabled
-                          ? "Attach a public HTTPS file"
-                          : "Attachments are disabled for this channel"
-                      }
-                    >
-                      {policy.enabled ? "Attach" : "Attachments off"}
-                      {composerAttachments.length
-                        ? ` (${composerAttachments.length})`
-                        : ""}
-                    </button>
-                    <button
-                      className="send-button"
-                      disabled={busy || !composer.trim()}
-                    >
-                      Append <b>↗</b>
-                    </button>
-                  </span>
+              {taskClosed ? (
+                <div className="conversation-closed" role="status">
+                  <span>✓</span>
+                  <div>
+                    <strong>Conversation closed</strong>
+                    <p>
+                      Webex ended this task. Its history remains available, but
+                      no additional messages can be appended.
+                    </p>
+                  </div>
                 </div>
-              </form>
+              ) : (
+                <form className="composer" onSubmit={appendMessage}>
+                  {showAttachments && (
+                    <AttachmentEditor
+                      value={composerAttachments}
+                      onChange={setComposerAttachments}
+                      policy={policy}
+                    />
+                  )}
+                  <FormattingToolbar
+                    textareaRef={composerRef}
+                    value={composer}
+                    setValue={setComposer}
+                  />
+                  <textarea
+                    ref={composerRef}
+                    value={composer}
+                    onChange={(event) => setComposer(event.target.value)}
+                    onKeyDown={composerKeyDown}
+                    placeholder="Append a customer message…"
+                    aria-label="Customer message"
+                  />
+                  <div>
+                    <span>Enter sends · Shift/Ctrl/⌘ + Enter adds a line</span>
+                    <span className="composer-actions">
+                      <button
+                        className="attach-button"
+                        type="button"
+                        onClick={() => setShowAttachments((value) => !value)}
+                        aria-pressed={showAttachments}
+                        disabled={!policy.enabled}
+                        title={
+                          policy.enabled
+                            ? "Attach a public HTTPS file"
+                            : "Attachments are disabled for this channel"
+                        }
+                      >
+                        {policy.enabled ? "Attach" : "Attachments off"}
+                        {composerAttachments.length
+                          ? ` (${composerAttachments.length})`
+                          : ""}
+                      </button>
+                      <button
+                        className="send-button"
+                        disabled={busy || !composer.trim()}
+                      >
+                        Append <b>↗</b>
+                      </button>
+                    </span>
+                  </div>
+                </form>
+              )}
             </>
           ) : (
             <div className="select-empty">
@@ -835,7 +856,7 @@ export default function Home() {
             <button
               className="demo-button"
               onClick={advanceDemo}
-              disabled={busy || ["ended", "failed"].includes(selected.status)}
+              disabled={busy || terminalTaskStatuses.has(selected.status)}
             >
               Advance demo event <span>→</span>
             </button>

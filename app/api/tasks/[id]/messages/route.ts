@@ -26,6 +26,19 @@ export async function POST(
 ) {
   await ensureSchema();
   const { id } = await context.params;
+  const task = await getDb()
+    .prepare("SELECT status FROM tasks WHERE id = ?")
+    .bind(id)
+    .first<{ status: string }>();
+  if (!task) {
+    return Response.json({ error: "Task not found." }, { status: 404 });
+  }
+  if (["ended", "failed"].includes(task.status)) {
+    return Response.json(
+      { error: "This conversation is closed and cannot accept messages." },
+      { status: 409 },
+    );
+  }
   const input = (await request.json()) as {
     text?: string;
     attachments?: unknown;

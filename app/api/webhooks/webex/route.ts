@@ -60,10 +60,18 @@ export async function POST(request: Request) {
   const now = normalizeMessageTimestamp(
     event.data?.createdTime ?? event.comciscotimestamp,
   );
+  const taskId =
+    event.data?.taskId ??
+    (event.type.startsWith("task:") ? event.id : undefined);
+  // Task lifecycle webhooks document the top-level `id` as the task ID, so it
+  // is reused across task:new, task:connect, task:connected, and task:ended.
+  // Include the event type and timestamp to deduplicate deliveries without
+  // discarding later lifecycle transitions for the same task.
+  const storedEventId = [event.id, event.type, taskId ?? "", now].join(":");
   if (
     await db
       .prepare("SELECT id FROM events WHERE id = ?")
-      .bind(event.id)
+      .bind(storedEventId)
       .first()
   )
     return Response.json({ received: true, duplicate: true });
@@ -72,8 +80,8 @@ export async function POST(request: Request) {
       `INSERT INTO events (id, task_id, type, direction, reason, error_message, payload_json, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
     )
     .bind(
-      event.id,
-      event.data?.taskId ?? null,
+      storedEventId,
+      taskId ?? null,
       event.type,
       event.data?.messageDirection ?? event.data?.direction ?? null,
       event.data?.reason ?? null,
@@ -83,17 +91,21 @@ export async function POST(request: Request) {
     )
     .run();
   const status = taskStatuses[event.type];
-  if (event.data?.taskId)
+  if (taskId)
     await db
       .prepare(
-        `UPDATE tasks SET status = COALESCE(?, status), last_event = ?, updated_at = ? WHERE id = ?`,
+        `UPDATE tasks SET
+          status = CASE WHEN status IN ('ended', 'failed') THEN status ELSE COALESCE(?, status) END,
+          last_event = CASE WHEN status IN ('ended', 'failed') THEN last_event ELSE ? END,
+          updated_at = CASE WHEN status IN ('ended', 'failed') THEN updated_at ELSE ? END
+        WHERE id = ?`,
       )
-      .bind(status ?? null, event.type, now, event.data.taskId)
+      .bind(status ?? null, event.type, now, taskId)
       .run();
   if (
     event.type === "task-message:appended" &&
     event.data?.messageDirection === "OUTBOUND" &&
-    event.data.taskId
+    taskId
   ) {
     const message = event.data.channelParams?.message;
     const deliveryStatus = await relayOutbound(event);
@@ -103,7 +115,7 @@ export async function POST(request: Request) {
       )
       .bind(
         message?.aliasId ?? event.id,
-        event.data.taskId,
+        taskId,
         event.data.senderType ?? "system",
         message?.text ?? "",
         JSON.stringify(message?.attachments ?? []),

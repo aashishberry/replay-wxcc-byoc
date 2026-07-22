@@ -69,6 +69,16 @@ PARTNER_DELIVERY_URL=<external-channel delivery adapter URL>
 Save the variables and let Render redeploy. Point the Webex asset webhook and
 subscriptions to the `/api/webhooks/webex` URL shown above.
 
+The asset-level webhook delivers outbound Custom Messaging content, but task
+lifecycle changes require Subscriptions API registrations. Subscribe this same
+endpoint to `task:new`, `task:connect`, `task:connected`, `task:ended`, and
+`task:failed`, plus `task-message:appended` and
+`task-message:append-failed`. Without the `task:ended` subscription, ending a
+task in Contact Center cannot close its local console record.
+
+Webhook delivery is not guaranteed, so production deployments should also
+reconcile task state periodically with the Webex Search API.
+
 ## Run locally
 
 Node.js 22+ is required. PostgreSQL is optional for UI testing: when

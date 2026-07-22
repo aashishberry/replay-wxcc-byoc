@@ -540,6 +540,35 @@ button:disabled {
   background: var(--white);
   flex: none;
 }
+.conversation-closed {
+  margin: 0 20px 16px;
+  padding: 12px 14px;
+  display: flex;
+  align-items: center;
+  gap: 11px;
+  border: 1px solid #a9c8bb;
+  background: #e8f2ec;
+  color: #315e58;
+  flex: none;
+}
+.conversation-closed > span {
+  width: 27px;
+  height: 27px;
+  display: grid;
+  place-items: center;
+  border-radius: 50%;
+  background: #2f9b72;
+  color: white;
+}
+.conversation-closed strong {
+  display: block;
+  font-size: 11px;
+}
+.conversation-closed p {
+  margin: 3px 0 0;
+  color: var(--muted);
+  font-size: 9px;
+}
 .composer > textarea {
   width: 100%;
   min-height: 58px;
