@@ -85,6 +85,36 @@ export async function POST(request: Request) {
       data?: { id?: string };
     };
     const taskId = response.data?.id ?? crypto.randomUUID();
+    const eventId = crypto.randomUUID();
+    const task = {
+      id: taskId,
+      origin_id: input.originId!.trim(),
+      origin_name: input.originName?.trim() ?? "",
+      destination_id: input.destinationId!.trim(),
+      channel: input.channel!.trim(),
+      status: "accepted",
+      last_event: "middleware:task-submitted",
+      initial_text: input.text!.trim(),
+      created_at: timestamp,
+      updated_at: timestamp,
+    };
+    const message = {
+      id: aliasId,
+      task_id: taskId,
+      direction: "INBOUND",
+      sender_type: "customer",
+      text: input.text!.trim(),
+      attachments_json: JSON.stringify(attachments),
+      delivery_status: "accepted",
+      created_at: timestamp,
+    };
+    const event = {
+      id: eventId,
+      task_id: taskId,
+      type: "middleware:task-submitted",
+      direction: "INBOUND",
+      created_at: timestamp,
+    };
     const db = getDb();
     await db.batch([
       db
@@ -118,16 +148,20 @@ export async function POST(request: Request) {
         .prepare(
           `INSERT INTO events (id, task_id, type, direction, payload_json, created_at) VALUES (?, ?, 'middleware:task-submitted', 'INBOUND', ?, ?)`,
         )
-        .bind(crypto.randomUUID(), taskId, JSON.stringify(payload), timestamp),
+        .bind(eventId, taskId, JSON.stringify(payload), timestamp),
     ]);
-    publishRealtime({
+    const update = {
       kind: "task",
       taskId,
       eventType: "middleware:task-submitted",
       at: timestamp,
-    });
+      task,
+      message,
+      event,
+    } as const;
+    publishRealtime(update);
     return Response.json(
-      { taskId, aliasId, mode: integrationMode() },
+      { taskId, aliasId, mode: integrationMode(), update },
       { status: 201 },
     );
   } catch (error) {

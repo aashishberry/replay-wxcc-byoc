@@ -47,7 +47,10 @@ In the Render Dashboard, open the web service and add the following under
 
 ```text
 WEBEX_TASKS_URL=<region-specific Create Task v2 URL>
-WEBEX_ACCESS_TOKEN=<token with cjp:task_write>
+WEBEX_SUBSCRIPTIONS_URL=<region-specific V2 subscriptions collection URL>
+WEBEX_ORG_ID=<Webex organization UUID>
+WEBEX_WEBHOOK_URL=https://<public-host>/api/webhooks/webex
+WEBEX_ACCESS_TOKEN=<token with task and configuration scopes>
 WEBEX_WEBHOOK_SECRET=<secret shared with the Webex asset/subscriptions>
 ```
 
@@ -79,6 +82,45 @@ task in Contact Center cannot close its local console record.
 Webhook delivery is not guaranteed, so production deployments should also
 reconcile task state periodically with the Webex Search API.
 
+### Required Webex subscriptions
+
+The backend reconciles the two managed V2 subscriptions whenever a new server
+instance starts. Missing registrations are created automatically. Existing
+registrations are matched by their stable names; configuration drift is logged
+for review instead of deleting or duplicating a subscription. No public setup
+API, UI setup control, or separate setup key is required.
+
+The task API token used for messaging is not sufficient unless its Service App
+was authorized by a full administrator with `cjp:config_write` and
+`cjp:config_read` in addition to the task scopes. After changing scopes,
+reauthorize the Service App and retrieve a new token pair.
+
+Register a V2 task-resource subscription against the regional Webex Contact
+Center `/v2/subscriptions` endpoint. A representative body is:
+
+```json
+{
+  "name": "relay-custom-messaging-task-lifecycle",
+  "description": "Task lifecycle events for Relay middleware",
+  "eventTypes": [
+    "task:new",
+    "task:connect",
+    "task:connected",
+    "task:ended",
+    "task:failed"
+  ],
+  "destinationUrl": "https://YOUR_PUBLIC_HOST/api/webhooks/webex",
+  "secret": "THE_SAME_VALUE_AS_WEBEX_WEBHOOK_SECRET",
+  "orgId": "YOUR_WEBEX_ORG_ID",
+  "resourceVersion": "task:1.0.0"
+}
+```
+
+The startup reconciliation registers task-message events separately with resource version
+`task-message:1.0.0`. It lists V2 registrations first and uses stable managed
+names to avoid duplicates. Subscriptions created with V1 and V2 are listed and
+managed through their respective API versions.
+
 ## Run locally
 
 Node.js 22+ is required. PostgreSQL is optional for UI testing: when
@@ -97,11 +139,14 @@ Open [http://localhost:3000](http://localhost:3000). To test persistence, create
 ### Real-time UI updates
 
 The browser uses Server-Sent Events at `/api/live` for immediate task, message,
-and accepted-webhook notifications. Notifications contain only the update kind,
-task ID, event type, and timestamp. The browser retains a 60-second refresh as a
-recovery path after connection loss. The in-process broadcaster is appropriate
-for a single Render instance; horizontal scaling requires PostgreSQL
-`LISTEN/NOTIFY` or a shared pub/sub service so every instance sees each update.
+and accepted-webhook updates. After validation and persistence, SSE carries
+normalized task patches, event metadata, and message records required by the UI;
+raw webhook bodies and signatures remain server-side. The task and message APIs
+are used for initial state, task selection, reconnect recovery, malformed SSE
+data, and a five-minute safety reconciliation—not for each live update. The
+in-process broadcaster is appropriate for a single Render instance; horizontal
+scaling requires PostgreSQL `LISTEN/NOTIFY` or a shared pub/sub service so every
+instance sees each update.
 
 ## Rich messages and attachments
 

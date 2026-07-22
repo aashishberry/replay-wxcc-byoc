@@ -22,7 +22,7 @@ export async function POST(request: Request) {
         .bind(taskId)
         .first<{ status: string }>()
     : null;
-  if (!task)
+  if (!taskId || !task)
     return Response.json({ error: "Task not found." }, { status: 404 });
   const next = nextState[task.status];
   if (!next)
@@ -31,6 +31,7 @@ export async function POST(request: Request) {
       { status: 409 },
     );
   const now = Date.now();
+  const eventId = crypto.randomUUID();
   await getDb().batch([
     getDb()
       .prepare(
@@ -42,18 +43,32 @@ export async function POST(request: Request) {
         `INSERT INTO events (id, task_id, type, direction, payload_json, created_at) VALUES (?, ?, ?, 'INBOUND', ?, ?)`,
       )
       .bind(
-        crypto.randomUUID(),
+        eventId,
         taskId,
         next.type,
         JSON.stringify({ demo: true, type: next.type, data: { taskId } }),
         now,
       ),
   ]);
-  publishRealtime({
+  const update = {
     kind: "task",
     taskId,
     eventType: next.type,
     at: now,
-  });
-  return Response.json(next);
+    taskPatch: {
+      id: taskId,
+      status: next.status,
+      last_event: next.type,
+      updated_at: now,
+    },
+    event: {
+      id: eventId,
+      task_id: taskId,
+      type: next.type,
+      direction: "INBOUND",
+      created_at: now,
+    },
+  } as const;
+  publishRealtime(update);
+  return Response.json({ ...next, update });
 }

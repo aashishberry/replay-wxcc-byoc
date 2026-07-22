@@ -1,5 +1,8 @@
 type RuntimeEnv = {
   WEBEX_TASKS_URL?: string;
+  WEBEX_SUBSCRIPTIONS_URL?: string;
+  WEBEX_ORG_ID?: string;
+  WEBEX_WEBHOOK_URL?: string;
   WEBEX_ACCESS_TOKEN?: string;
   WEBEX_CLIENT_ID?: string;
   WEBEX_CLIENT_SECRET?: string;
@@ -23,7 +26,7 @@ export function integrationMode() {
   return config.WEBEX_TASKS_URL && canAuthenticate ? "live" : "sandbox";
 }
 
-async function accessToken() {
+export async function webexAccessToken() {
   const config = runtimeEnv();
   if (config.WEBEX_ACCESS_TOKEN) return config.WEBEX_ACCESS_TOKEN;
   if (tokenCache && tokenCache.expiresAt > Date.now() + 60_000)
@@ -61,36 +64,56 @@ async function accessToken() {
   return tokenCache.value;
 }
 
+export async function webexJsonRequest(
+  url: string,
+  init: RequestInit = {},
+): Promise<unknown> {
+  const token = await webexAccessToken();
+  if (!token) throw new Error("Webex Service App credentials are missing");
+  const response = await fetch(url, {
+    ...init,
+    headers: {
+      Authorization: `Bearer ${token}`,
+      Accept: "application/json",
+      ...(init.body ? { "Content-Type": "application/json" } : {}),
+      ...init.headers,
+    },
+  });
+  const text = await response.text();
+  let body: unknown = {};
+  if (text) {
+    try {
+      body = JSON.parse(text);
+    } catch {
+      body = { message: text };
+    }
+  }
+  if (!response.ok) {
+    const record = body as { message?: unknown; error?: unknown };
+    const detail =
+      typeof record.message === "string"
+        ? record.message
+        : typeof record.error === "string"
+          ? record.error
+          : `Webex returned HTTP ${response.status}`;
+    throw new Error(detail);
+  }
+  return body;
+}
+
 export async function webexRequest(path: string, payload: unknown) {
   const config = runtimeEnv();
   if (integrationMode() === "sandbox")
     return { data: { id: crypto.randomUUID() }, sandbox: true };
-  const token = await accessToken();
-  if (!config.WEBEX_TASKS_URL || !token)
+  if (!config.WEBEX_TASKS_URL)
     throw new Error("Webex Tasks URL or Service App credentials are missing");
-  const response = await fetch(
+  return webexJsonRequest(
     `${config.WEBEX_TASKS_URL.replace(/\/$/, "")}${path}`,
     {
       method: "POST",
-      headers: {
-        Authorization: `Bearer ${token}`,
-        "Content-Type": "application/json",
-        Accept: "application/json",
-      },
       body: JSON.stringify(payload),
     },
   );
-  const body = (await response.json().catch(() => ({}))) as Record<
-    string,
-    unknown
-  >;
-  if (!response.ok)
-    throw new Error(
-      typeof body.message === "string"
-        ? body.message
-        : `Webex returned HTTP ${response.status}`,
-    );
-  return body;
 }
 
 function hex(bytes: ArrayBuffer) {

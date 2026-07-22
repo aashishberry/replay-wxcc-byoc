@@ -1,6 +1,10 @@
 import { ensureSchema, getDb } from "../../../../db";
 import { normalizeMessageTimestamp } from "../../../../lib/messages";
-import { publishRealtime } from "../../../../lib/realtime";
+import {
+  publishRealtime,
+  type RealtimeMessage,
+  type RealtimeTaskPatch,
+} from "../../../../lib/realtime";
 import { relayOutbound, verifyWebhook } from "../../../../lib/webex";
 
 type WebexEvent = {
@@ -139,6 +143,7 @@ export async function POST(request: Request) {
       )
       .bind(status ?? null, event.type, now, taskId)
       .run();
+  let realtimeMessage: RealtimeMessage | undefined;
   if (
     event.type === "task-message:appended" &&
     event.data?.messageDirection === "OUTBOUND" &&
@@ -153,6 +158,16 @@ export async function POST(request: Request) {
       ),
     );
     const deliveryStatus = await relayOutbound(event);
+    realtimeMessage = {
+      id: message?.aliasId ?? event.id,
+      task_id: taskId,
+      direction: "OUTBOUND",
+      sender_type: event.data.senderType ?? "system",
+      text: message?.text ?? "",
+      attachments_json: JSON.stringify(message?.attachments ?? []),
+      delivery_status: deliveryStatus,
+      created_at: messageCreatedAt,
+    };
     await db
       .prepare(
         `INSERT OR IGNORE INTO messages (id, task_id, direction, sender_type, text, attachments_json, delivery_status, created_at) VALUES (?, ?, 'OUTBOUND', ?, ?, ?, ?, ?)`,
@@ -168,6 +183,24 @@ export async function POST(request: Request) {
       )
       .run();
   }
+  const taskPatch = taskId
+    ? await db
+        .prepare(
+          "SELECT id, status, last_event, updated_at FROM tasks WHERE id = ?",
+        )
+        .bind(taskId)
+        .first<RealtimeTaskPatch>()
+    : null;
+  const eventItem = {
+    id: storedEventId,
+    task_id: taskId,
+    type: event.type,
+    direction:
+      event.data?.messageDirection ?? event.data?.direction ?? undefined,
+    reason: event.data?.reason,
+    error_message: event.data?.errorMessage,
+    created_at: now,
+  };
   console.info(
     "[webex-webhook] accepted",
     JSON.stringify({ ...receipt, status: status ?? null }),
@@ -177,6 +210,9 @@ export async function POST(request: Request) {
     taskId,
     eventType: event.type,
     at: now,
+    taskPatch: taskPatch ?? undefined,
+    message: realtimeMessage,
+    event: eventItem,
   });
   return Response.json({
     received: true,

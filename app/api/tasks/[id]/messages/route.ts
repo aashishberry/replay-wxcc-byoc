@@ -79,6 +79,30 @@ export async function POST(
   };
   try {
     await webexRequest(`/${encodeURIComponent(id)}/messages`, payload);
+    const eventId = crypto.randomUUID();
+    const message = {
+      id: aliasId,
+      task_id: id,
+      direction: "INBOUND",
+      sender_type: "customer",
+      text,
+      attachments_json: JSON.stringify(attachments),
+      delivery_status: "accepted",
+      created_at: timestamp,
+    };
+    const event = {
+      id: eventId,
+      task_id: id,
+      type: "middleware:message-submitted",
+      direction: "INBOUND",
+      created_at: timestamp,
+    };
+    const taskPatch = {
+      id,
+      status: task.status,
+      last_event: "middleware:message-submitted",
+      updated_at: timestamp,
+    };
     const db = getDb();
     await db.batch([
       db
@@ -91,20 +115,24 @@ export async function POST(
         .prepare(
           `INSERT INTO events (id, task_id, type, direction, payload_json, created_at) VALUES (?, ?, 'middleware:message-submitted', 'INBOUND', ?, ?)`,
         )
-        .bind(crypto.randomUUID(), id, JSON.stringify(payload), timestamp),
+        .bind(eventId, id, JSON.stringify(payload), timestamp),
       db
         .prepare(
           "UPDATE tasks SET updated_at = ?, last_event = 'middleware:message-submitted' WHERE id = ?",
         )
         .bind(timestamp, id),
     ]);
-    publishRealtime({
+    const update = {
       kind: "message",
       taskId: id,
       eventType: "middleware:message-submitted",
       at: timestamp,
-    });
-    return Response.json({ id: aliasId }, { status: 201 });
+      taskPatch,
+      message,
+      event,
+    } as const;
+    publishRealtime(update);
+    return Response.json({ id: aliasId, update }, { status: 201 });
   } catch (error) {
     return Response.json(
       { error: error instanceof Error ? error.message : "Append failed" },

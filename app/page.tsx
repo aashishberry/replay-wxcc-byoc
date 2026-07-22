@@ -12,6 +12,7 @@ import {
   useRef,
   useState,
 } from "react";
+import type { RealtimeUpdate } from "../lib/realtime";
 import { MessageAttachment, MessageContent } from "./message-content";
 
 type Task = {
@@ -37,6 +38,7 @@ type EventItem = {
 };
 type Message = {
   id: string;
+  task_id: string;
   direction: string;
   sender_type?: string;
   text: string;
@@ -383,6 +385,7 @@ export default function Home() {
   const timelineRef = useRef<HTMLDivElement>(null);
   const composerRef = useRef<HTMLTextAreaElement>(null);
   const initialMessageRef = useRef<HTMLTextAreaElement>(null);
+  const selectedIdRef = useRef("");
 
   const refresh = useCallback(async () => {
     const response = await fetch("/api/tasks", { cache: "no-store" });
@@ -417,26 +420,94 @@ export default function Home() {
     );
     if (response.ok) setMessages((await response.json()).messages as Message[]);
   }, []);
+  const applyRealtimeUpdate = useCallback((update: RealtimeUpdate) => {
+    if (update.task) {
+      setTasks((current) =>
+        [
+          update.task!,
+          ...current.filter((item) => item.id !== update.task!.id),
+        ].sort((a, b) => Number(b.updated_at) - Number(a.updated_at)),
+      );
+      setSelectedId((current) => current || update.task!.id);
+    } else if (update.taskPatch) {
+      setTasks((current) =>
+        current
+          .map((item) =>
+            item.id === update.taskPatch!.id
+              ? { ...item, ...update.taskPatch }
+              : item,
+          )
+          .sort((a, b) => Number(b.updated_at) - Number(a.updated_at)),
+      );
+    }
+    if (update.event) {
+      setEvents((current) =>
+        [
+          update.event!,
+          ...current.filter((item) => item.id !== update.event!.id),
+        ]
+          .sort((a, b) => Number(b.created_at) - Number(a.created_at))
+          .slice(0, 80),
+      );
+    }
+    if (update.message && update.taskId === selectedIdRef.current) {
+      setMessages((current) =>
+        [
+          ...current.filter((item) => item.id !== update.message!.id),
+          update.message!,
+        ].sort(
+          (a, b) =>
+            Number(a.created_at) - Number(b.created_at) ||
+            a.id.localeCompare(b.id),
+        ),
+      );
+    }
+  }, []);
 
+  useEffect(() => {
+    selectedIdRef.current = selectedId;
+  }, [selectedId]);
   useEffect(() => {
     const initial = setTimeout(refresh, 0);
     const source = new EventSource("/api/live");
-    const update = () => void refresh();
-    source.addEventListener("update", update);
-    source.onopen = () => setStreamConnected(true);
-    source.onerror = () => setStreamConnected(false);
-    const fallback = setInterval(refresh, 60_000);
+    let connectedOnce = false;
+    let lastRecovery = 0;
+    const recover = () => {
+      void refresh();
+      if (selectedIdRef.current) void loadMessages(selectedIdRef.current);
+    };
+    const receive = (event: globalThis.MessageEvent<string>) => {
+      try {
+        applyRealtimeUpdate(JSON.parse(event.data) as RealtimeUpdate);
+      } catch {
+        recover();
+      }
+    };
+    source.addEventListener("update", receive as EventListener);
+    source.onopen = () => {
+      setStreamConnected(true);
+      if (connectedOnce) recover();
+      connectedOnce = true;
+    };
+    source.onerror = () => {
+      setStreamConnected(false);
+      if (Date.now() - lastRecovery > 30_000) {
+        lastRecovery = Date.now();
+        recover();
+      }
+    };
+    const fallback = setInterval(recover, 5 * 60_000);
     return () => {
       clearTimeout(initial);
       clearInterval(fallback);
-      source.removeEventListener("update", update);
+      source.removeEventListener("update", receive as EventListener);
       source.close();
     };
-  }, [refresh]);
+  }, [applyRealtimeUpdate, loadMessages, refresh]);
   useEffect(() => {
     const request = setTimeout(() => loadMessages(selectedId), 0);
     return () => clearTimeout(request);
-  }, [selectedId, loadMessages, events]);
+  }, [selectedId, loadMessages]);
   useEffect(() => {
     if (!createOpen) return;
     const close = (event: globalThis.KeyboardEvent) => {
@@ -510,7 +581,7 @@ export default function Home() {
     setForm(initialForm);
     setFormAttachments([]);
     setMobilePanel("conversation");
-    await refresh();
+    if (data.update) applyRealtimeUpdate(data.update as RealtimeUpdate);
   }
   async function appendMessage(event: FormEvent) {
     event.preventDefault();
@@ -542,8 +613,7 @@ export default function Home() {
     setNotice(
       "Message accepted. Confirmation arrives through task-message:appended.",
     );
-    await refresh();
-    await loadMessages(selected.id);
+    if (data.update) applyRealtimeUpdate(data.update as RealtimeUpdate);
   }
   async function advanceDemo() {
     if (!selected) return;
@@ -556,7 +626,8 @@ export default function Home() {
     const data = await response.json();
     setBusy(false);
     setNotice(response.ok ? `Received ${data.type}.` : data.error);
-    await refresh();
+    if (response.ok && data.update)
+      applyRealtimeUpdate(data.update as RealtimeUpdate);
   }
   function composerKeyDown(event: KeyboardEvent<HTMLTextAreaElement>) {
     if (event.key !== "Enter" || event.nativeEvent.isComposing) return;
