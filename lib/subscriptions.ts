@@ -1,4 +1,4 @@
-import { runtimeEnv, webexJsonRequest } from "./webex";
+import { runtimeEnv, webexSubscriptionsJsonRequest } from "./webex";
 
 type WebexSubscription = {
   id?: string;
@@ -55,11 +55,19 @@ function subscriptionConfig() {
   const orgId = config.WEBEX_ORG_ID?.trim();
   const secret = config.WEBEX_WEBHOOK_SECRET?.trim();
   const destinationUrl = config.WEBEX_WEBHOOK_URL?.trim() ?? "";
+  const canAuthenticate = Boolean(
+    config.WEBEX_SUBSCRIPTIONS_ACCESS_TOKEN ||
+    (config.WEBEX_SUBSCRIPTIONS_CLIENT_ID &&
+      config.WEBEX_SUBSCRIPTIONS_CLIENT_SECRET &&
+      config.WEBEX_SUBSCRIPTIONS_REFRESH_TOKEN),
+  );
   const missing = [
     !subscriptionsUrl && "WEBEX_SUBSCRIPTIONS_URL",
     !orgId && "WEBEX_ORG_ID",
     !destinationUrl && "WEBEX_WEBHOOK_URL",
     !secret && "WEBEX_WEBHOOK_SECRET",
+    !canAuthenticate &&
+      "WEBEX_SUBSCRIPTIONS_ACCESS_TOKEN or subscription refresh credentials",
   ].filter(Boolean) as string[];
   let destinationError = "";
   if (destinationUrl) {
@@ -141,7 +149,7 @@ async function listSubscriptions() {
   if (config.missing.length || config.destinationError) return { config };
   const url = new URL(config.subscriptionsUrl!);
   url.searchParams.set("orgId", config.orgId!);
-  const body = await webexJsonRequest(url.toString());
+  const body = await webexSubscriptionsJsonRequest(url.toString());
   return { config, existing: subscriptionArray(body) };
 }
 
@@ -180,7 +188,7 @@ export async function syncSubscriptions() {
   for (const desired of desiredSubscriptions) {
     const state = before.find((item) => item.name === desired.name)!;
     if (state.status !== "missing") continue;
-    await webexJsonRequest(config.subscriptionsUrl!, {
+    await webexSubscriptionsJsonRequest(config.subscriptionsUrl!, {
       method: "POST",
       body: JSON.stringify({
         ...desired,

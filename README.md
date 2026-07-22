@@ -50,16 +50,22 @@ WEBEX_TASKS_URL=<region-specific Create Task v2 URL>
 WEBEX_SUBSCRIPTIONS_URL=<region-specific V2 subscriptions collection URL>
 WEBEX_ORG_ID=<Webex organization UUID>
 WEBEX_WEBHOOK_URL=https://<public-host>/api/webhooks/webex
-WEBEX_ACCESS_TOKEN=<token with task and configuration scopes>
+WEBEX_ACCESS_TOKEN=<token with cjp:task_write and cjp:task_read>
+WEBEX_SUBSCRIPTIONS_ACCESS_TOKEN=<separate token with configuration scopes>
 WEBEX_WEBHOOK_SECRET=<secret shared with the Webex asset/subscriptions>
 ```
 
-Alternatively, replace `WEBEX_ACCESS_TOKEN` with these Service App values:
+Alternatively, replace each static token with its corresponding refresh
+credentials:
 
 ```text
 WEBEX_CLIENT_ID=
 WEBEX_CLIENT_SECRET=
 WEBEX_REFRESH_TOKEN=
+
+WEBEX_SUBSCRIPTIONS_CLIENT_ID=
+WEBEX_SUBSCRIPTIONS_CLIENT_SECRET=
+WEBEX_SUBSCRIPTIONS_REFRESH_TOKEN=
 ```
 
 Optional values:
@@ -90,10 +96,12 @@ registrations are matched by their stable names; configuration drift is logged
 for review instead of deleting or duplicating a subscription. No public setup
 API, UI setup control, or separate setup key is required.
 
-The task API token used for messaging is not sufficient unless its Service App
-was authorized by a full administrator with `cjp:config_write` and
-`cjp:config_read` in addition to the task scopes. After changing scopes,
-reauthorize the Service App and retrieve a new token pair.
+Task operations and subscription administration use independent credential
+sets. Keep `WEBEX_ACCESS_TOKEN` limited to `cjp:task_write` and `cjp:task_read`.
+Configure `WEBEX_SUBSCRIPTIONS_ACCESS_TOKEN` from a separately authorized app
+or integration with `cjp:config_write` and `cjp:config_read`. The backend never
+falls back to the task token for subscription calls, so changing subscription
+authorization cannot alter the identity or scopes used to create tasks.
 
 Register a V2 task-resource subscription against the regional Webex Contact
 Center `/v2/subscriptions` endpoint. A representative body is:
