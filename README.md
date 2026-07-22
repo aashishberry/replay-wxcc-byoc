@@ -71,16 +71,44 @@ subscriptions to the `/api/webhooks/webex` URL shown above.
 
 ## Run locally
 
-Prerequisites are Node.js 22+ and PostgreSQL. Create `.env.local` from
-`.env.example`, set `DATABASE_URL`, then run:
+Node.js 22+ is required. PostgreSQL is optional for UI testing: when
+`DATABASE_URL` is absent in development, the app uses an in-memory database that
+is cleared when the process restarts.
 
 ```bash
 npm install
 npm run dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000). Set `DATABASE_SSL=false`
-for a typical local PostgreSQL server.
+Open [http://localhost:3000](http://localhost:3000). To test persistence, create
+`.env.local` from `.env.example`, set `DATABASE_URL`, and set
+`DATABASE_SSL=false` for a typical local PostgreSQL server.
+
+## Rich messages and attachments
+
+Message text accepts Markdown and a safe subset of HTML. Scripts, event
+handlers, inline styles, and unsafe URLs are removed before rendering. Images in
+message content and attachment metadata are rendered inline when they use HTTPS.
+
+Custom Messaging attachments are URL based; this console does not upload local
+files. Paste a public HTTPS `fileUrl`; the console derives `fileName` and
+`mimeType` from known extensions, or offers the configured MIME types when the
+extension is unknown. Webex performs the authoritative remote-size and
+channel-policy validation using metadata such as `Content-Length`.
+
+```text
+ATTACHMENTS_ENABLED=true
+MAX_ATTACHMENT_COUNT=5
+MAX_ATTACHMENT_BYTES=10485760
+MAX_TOTAL_ATTACHMENT_BYTES=26214400
+ALLOWED_ATTACHMENT_MIME_TYPES=image/*,application/pdf,text/plain,text/csv
+```
+
+Configure the corresponding attachment policy and size limits in Webex Control
+Hub. These middleware values mirror that policy for UI guidance; Webex remains
+authoritative. Set `ATTACHMENTS_ENABLED=false` to disable the attachment controls
+and make the API reject attachment payloads. The UI intentionally does not ask
+end users to estimate a file size.
 
 ## Free-tier limitations
 
