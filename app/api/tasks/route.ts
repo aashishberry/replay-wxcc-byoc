@@ -134,7 +134,7 @@ export async function POST(request: Request) {
         ),
       db
         .prepare(
-          `INSERT INTO messages (id, task_id, direction, sender_type, text, attachments_json, delivery_status, created_at)
+          `INSERT OR IGNORE INTO messages (id, task_id, direction, sender_type, text, attachments_json, delivery_status, created_at)
         VALUES (?, ?, 'INBOUND', 'customer', ?, ?, 'accepted', ?)`,
         )
         .bind(
@@ -150,13 +150,18 @@ export async function POST(request: Request) {
         )
         .bind(eventId, taskId, JSON.stringify(payload), timestamp),
     ]);
+    const persistedMessage =
+      (await db
+        .prepare("SELECT * FROM messages WHERE id = ? AND task_id = ?")
+        .bind(aliasId, taskId)
+        .first<typeof message>()) ?? message;
     const update = {
       kind: "task",
       taskId,
       eventType: "middleware:task-submitted",
       at: timestamp,
       task,
-      message,
+      message: persistedMessage,
       event,
     } as const;
     publishRealtime(update);

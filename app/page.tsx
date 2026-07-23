@@ -571,11 +571,6 @@ export default function Home() {
     const data = await response.json();
     setBusy(false);
     if (!response.ok) return setNotice(data.error ?? "Could not create task.");
-    setNotice(
-      mode === "sandbox"
-        ? "Sandbox task created. Advance it to simulate Webex lifecycle events."
-        : "Task accepted by Webex. Waiting for task:new or task:failed.",
-    );
     setSelectedId(data.taskId);
     setCreateOpen(false);
     setForm(initialForm);
@@ -610,9 +605,6 @@ export default function Home() {
     setComposer("");
     setComposerAttachments([]);
     setShowAttachments(false);
-    setNotice(
-      "Message accepted. Confirmation arrives through task-message:appended.",
-    );
     if (data.update) applyRealtimeUpdate(data.update as RealtimeUpdate);
   }
   async function advanceDemo() {
@@ -801,11 +793,37 @@ export default function Home() {
                         attachments={parseAttachments(message.attachments_json)}
                       />
                     </div>
-                    <small>
-                      {message.direction === "OUTBOUND"
-                        ? `Relay: ${message.delivery_status}`
-                        : message.id.slice(0, 8)}
-                    </small>
+                    {message.direction === "OUTBOUND" ? (
+                      <small>{`Relay: ${message.delivery_status}`}</small>
+                    ) : (
+                      <small className="message-delivery">
+                        <span>{message.id.slice(0, 8)}</span>
+                        <span
+                          className={`delivery-check ${message.delivery_status}`}
+                          role="img"
+                          aria-label={
+                            message.delivery_status === "appended"
+                              ? "Successfully appended to Webex"
+                              : message.delivery_status === "failed"
+                                ? "Message append failed"
+                                : "Message accepted for sending"
+                          }
+                          title={
+                            message.delivery_status === "appended"
+                              ? "Successfully appended to Webex"
+                              : message.delivery_status === "failed"
+                                ? "Message append failed"
+                                : "Accepted by the Tasks API"
+                          }
+                        >
+                          {message.delivery_status === "appended"
+                            ? "✓✓"
+                            : message.delivery_status === "failed"
+                              ? "!"
+                              : "✓"}
+                        </span>
+                      </small>
+                    )}
                   </article>
                 ))}
               </div>

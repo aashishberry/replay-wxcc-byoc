@@ -144,44 +144,86 @@ export async function POST(request: Request) {
       .bind(status ?? null, event.type, now, taskId)
       .run();
   let realtimeMessage: RealtimeMessage | undefined;
-  if (
-    event.type === "task-message:appended" &&
-    event.data?.messageDirection === "OUTBOUND" &&
-    taskId
-  ) {
-    const message = event.data.channelParams?.message;
+  if (event.type === "task-message:appended" && taskId) {
+    const message = event.data?.channelParams?.message;
     const messageCreatedAt = normalizeMessageTimestamp(
       event.comciscotimestamp,
       normalizeMessageTimestamp(
-        event.data.createdTime,
+        event.data?.createdTime,
         normalizeMessageTimestamp(message?.timestamp),
       ),
     );
-    const deliveryStatus = await relayOutbound(event);
-    realtimeMessage = {
-      id: message?.aliasId ?? event.id,
-      task_id: taskId,
-      direction: "OUTBOUND",
-      sender_type: event.data.senderType ?? "system",
-      text: message?.text ?? "",
-      attachments_json: JSON.stringify(message?.attachments ?? []),
-      delivery_status: deliveryStatus,
-      created_at: messageCreatedAt,
-    };
+    const messageId = message?.aliasId ?? event.id;
+    if (event.data?.messageDirection === "OUTBOUND") {
+      const deliveryStatus = await relayOutbound(event);
+      realtimeMessage = {
+        id: messageId,
+        task_id: taskId,
+        direction: "OUTBOUND",
+        sender_type: event.data.senderType ?? "system",
+        text: message?.text ?? "",
+        attachments_json: JSON.stringify(message?.attachments ?? []),
+        delivery_status: deliveryStatus,
+        created_at: messageCreatedAt,
+      };
+      await db
+        .prepare(
+          `INSERT OR IGNORE INTO messages (id, task_id, direction, sender_type, text, attachments_json, delivery_status, created_at) VALUES (?, ?, 'OUTBOUND', ?, ?, ?, ?, ?)`,
+        )
+        .bind(
+          messageId,
+          taskId,
+          event.data.senderType ?? "system",
+          message?.text ?? "",
+          JSON.stringify(message?.attachments ?? []),
+          deliveryStatus,
+          messageCreatedAt,
+        )
+        .run();
+    } else if (event.data?.messageDirection === "INBOUND") {
+      await db
+        .prepare(
+          `INSERT OR IGNORE INTO messages (id, task_id, direction, sender_type, text, attachments_json, delivery_status, created_at)
+           VALUES (?, ?, 'INBOUND', 'customer', ?, ?, 'appended', ?)`,
+        )
+        .bind(
+          messageId,
+          taskId,
+          message?.text ?? "",
+          JSON.stringify(message?.attachments ?? []),
+          messageCreatedAt,
+        )
+        .run();
+      await db
+        .prepare(
+          "UPDATE messages SET delivery_status = 'appended' WHERE id = ? AND task_id = ?",
+        )
+        .bind(messageId, taskId)
+        .run();
+      realtimeMessage =
+        (await db
+          .prepare("SELECT * FROM messages WHERE id = ? AND task_id = ?")
+          .bind(messageId, taskId)
+          .first<RealtimeMessage>()) ?? undefined;
+    }
+  } else if (
+    event.type === "task-message:append-failed" &&
+    event.data?.messageDirection === "INBOUND" &&
+    taskId
+  ) {
+    const message = event.data.channelParams?.message;
+    const messageId = message?.aliasId ?? event.id;
     await db
       .prepare(
-        `INSERT OR IGNORE INTO messages (id, task_id, direction, sender_type, text, attachments_json, delivery_status, created_at) VALUES (?, ?, 'OUTBOUND', ?, ?, ?, ?, ?)`,
+        "UPDATE messages SET delivery_status = 'failed' WHERE id = ? AND task_id = ?",
       )
-      .bind(
-        message?.aliasId ?? event.id,
-        taskId,
-        event.data.senderType ?? "system",
-        message?.text ?? "",
-        JSON.stringify(message?.attachments ?? []),
-        deliveryStatus,
-        messageCreatedAt,
-      )
+      .bind(messageId, taskId)
       .run();
+    realtimeMessage =
+      (await db
+        .prepare("SELECT * FROM messages WHERE id = ? AND task_id = ?")
+        .bind(messageId, taskId)
+        .first<RealtimeMessage>()) ?? undefined;
   }
   const taskPatch = taskId
     ? await db

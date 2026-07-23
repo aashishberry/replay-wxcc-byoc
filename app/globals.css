@@ -439,6 +439,25 @@ button:disabled {
   font: 8px var(--font-mono);
   text-align: right;
 }
+.message > .message-delivery {
+  display: flex;
+  justify-content: flex-end;
+  align-items: center;
+  gap: 6px;
+}
+.delivery-check {
+  color: var(--muted);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: -0.18em;
+}
+.delivery-check.appended {
+  color: #287154;
+}
+.delivery-check.failed {
+  color: var(--danger);
+  letter-spacing: 0;
+}
 .rich-message > *:first-child {
   margin-top: 0;
 }
